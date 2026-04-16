@@ -1,13 +1,6 @@
 This plugin is distributed under the GNU Affero General Public License, version
 3 or any later version (AGPL-3.0-or-later). See `LICENSE`.
 
-The following files contain material adapted from the BookFusion KOReader
-plugin, a separate third-party project and service. A local source snapshot was
-kept beside this work only as reference material during development:
-
-- `main.lua`, adapted in part from `../bookfusion.koplugin/main.lua`
-- `st_sync.lua`, adapted in part from `../bookfusion.koplugin/bf_sync.lua`
-- `st_epub.lua`, adapted in part from `../bookfusion.koplugin/bf_epub.lua`
-
-The corresponding upstream BookFusion plugin license text is preserved at
-`../bookfusion.koplugin/LICENSE`.
+The following files contain material adapted from the AGPL v3 BookFusion KOReader
+plugin, a separate third-party project and service. Files based on their plugin 
+should have a note at the top pointing this out.
