@@ -371,20 +371,29 @@ function Storyteller:enableSync(initial)
 end
 
 function Storyteller:disableSync()
+    local UIManager = require("ui/uimanager")
     if self._progress_push_task then
-        local UIManager = require("ui/uimanager")
         UIManager:unschedule(self._progress_push_task)
         self._progress_push_task = nil
+    end
+    if self._remote_apply_release_task then
+        UIManager:unschedule(self._remote_apply_release_task)
+        self._remote_apply_release_task = nil
     end
     self.onPageUpdate = nil
     self.sync = nil
     self.book_meta = nil
     self._pending_progress_payload = nil
+    self._suppress_progress_capture = nil
     Log:info("autosync_disabled")
 end
 
 function Storyteller:_onPageUpdate(page)
     if not self.sync or not self.book_meta or not self.book_meta.book_uuid then
+        return
+    end
+    if self._suppress_progress_capture then
+        Log:info("autosync_progress_ignored_remote_apply", { page = page })
         return
     end
     if page == nil or page == self._last_page then
@@ -412,6 +421,29 @@ function Storyteller:scheduleProgressPush()
     end
     UIManager:scheduleIn(5, self._progress_push_task)
     Log:info("autosync_progress_scheduled")
+end
+
+function Storyteller:beginRemoteApplySuppression()
+    local UIManager = require("ui/uimanager")
+    if self._progress_push_task then
+        UIManager:unschedule(self._progress_push_task)
+        self._progress_push_task = nil
+    end
+    if self._remote_apply_release_task then
+        UIManager:unschedule(self._remote_apply_release_task)
+        self._remote_apply_release_task = nil
+    end
+
+    self._pending_progress_payload = nil
+    self._suppress_progress_capture = true
+    Log:info("autosync_remote_apply_suppressed")
+
+    self._remote_apply_release_task = function()
+        self._remote_apply_release_task = nil
+        self._suppress_progress_capture = nil
+        Log:info("autosync_remote_apply_resumed")
+    end
+    UIManager:scheduleIn(1, self._remote_apply_release_task)
 end
 
 function Storyteller:pushProgressIfPossible(reason)
@@ -465,6 +497,7 @@ function Storyteller:fetchIfRemoteNewer(reason)
         return false
     end
 
+    self:beginRemoteApplySuppression()
     local applied = self.sync:applyRemoteProgress(data)
     Log:info("autosync_fetch_applied", {
         reason = reason,
@@ -484,6 +517,10 @@ function Storyteller:onCloseDocument()
         UIManager:unschedule(self._progress_push_task)
         self._progress_push_task = nil
     end
+    if self._remote_apply_release_task then
+        UIManager:unschedule(self._remote_apply_release_task)
+        self._remote_apply_release_task = nil
+    end
 
     if had_pending_progress then
         self:pushProgressIfPossible("close_document")
@@ -493,6 +530,7 @@ function Storyteller:onCloseDocument()
     self.book_meta = nil
     self._last_page = nil
     self._pending_progress_payload = nil
+    self._suppress_progress_capture = nil
     Log:info("autosync_close_document", { had_pending_progress = had_pending_progress })
 end
 

@@ -177,6 +177,10 @@ function Epub.parseXPath(path)
     local text_offset = nil
     local text_node_index = nil
 
+    if type(path) ~= "string" or path == "" then
+        return steps, text_offset, text_node_index
+    end
+
     for part in path:gmatch("[^/]+") do
         local elem_name, elem_idx, elem_off = part:match("^([%a_][%w_%-]*)%[(%d+)%]%.(%d+)$")
         if elem_name then
