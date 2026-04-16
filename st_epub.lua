@@ -1,7 +1,6 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Provenance: portions of this file were adapted from
 -- `bookfusion.koplugin/bf_epub.lua`, a separate third-party KOReader plugin
--- The adapted portions remain available under the GNU Affero General Public
 -- License, version 3 or any later version. See `bookfusion.koplugin/LICENSE`.
 
 local Epub = {}
