@@ -20,11 +20,32 @@ function Storyteller:init()
 
     self.st_settings = Settings:new()
     self.api = Api:new(self.st_settings)
+    self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
     Log:info("plugin_init", {
         server_url = self.st_settings:getServerUrl(),
         logged_in = self.st_settings:isLoggedIn(),
         log_path = Log:getPath(),
+    })
+end
+
+function Storyteller:onDispatcherRegisterActions()
+    local ok, Dispatcher = pcall(require, "dispatcher")
+    if not ok or not Dispatcher then
+        return
+    end
+
+    Dispatcher:registerAction("storyteller_push_progress", {
+        category = "none",
+        event = "StorytellerPushProgress",
+        title = _("Storyteller: Push reading position"),
+        reader = true,
+    })
+    Dispatcher:registerAction("storyteller_fetch_progress", {
+        category = "none",
+        event = "StorytellerFetchProgress",
+        title = _("Storyteller: Fetch reading position"),
+        reader = true,
     })
 end
 
@@ -577,6 +598,10 @@ function Storyteller:onPushProgress()
     end)
 end
 
+function Storyteller:onStorytellerPushProgress()
+    return self:onPushProgress()
+end
+
 function Storyteller:onFetchProgress()
     local sync = self:getCurrentSync()
     if not sync then
@@ -609,6 +634,10 @@ function Storyteller:onFetchProgress()
             })
         end
     end)
+end
+
+function Storyteller:onStorytellerFetchProgress()
+    return self:onFetchProgress()
 end
 
 function Storyteller:showNotStorytellerBookMessage()

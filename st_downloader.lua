@@ -11,6 +11,10 @@ function Downloader.getDownloadDir(settings)
     if dir then
         return dir
     end
+    local home_dir = G_reader_settings:readSetting("home_dir")
+    if home_dir and home_dir ~= "" then
+        return home_dir
+    end
     local DataStorage = require("datastorage")
     return G_reader_settings:readSetting("download_dir") or DataStorage:getDataDir()
 end
