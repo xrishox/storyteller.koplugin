@@ -4,9 +4,23 @@ local DataStorage = require("datastorage")
 local json = require("rapidjson")
 
 local Log = {}
+local VERBOSE_MARKER = "storyteller.debug"
 
 function Log:getPath()
     return DataStorage:getSettingsDir() .. "/storyteller.log"
+end
+
+function Log:getVerboseMarkerPath()
+    return DataStorage:getSettingsDir() .. "/" .. VERBOSE_MARKER
+end
+
+function Log:isVerboseEnabled()
+    local handle = io.open(self:getVerboseMarkerPath(), "r")
+    if handle then
+        handle:close()
+        return true
+    end
+    return false
 end
 
 function Log:_write(level, message, data)
@@ -30,6 +44,9 @@ function Log:_write(level, message, data)
 end
 
 function Log:info(message, data)
+    if not self:isVerboseEnabled() then
+        return
+    end
     self:_write("info", message, data)
 end
 
