@@ -9,6 +9,42 @@ local Log = require("st_log")
 
 local Sync = {}
 
+local function clamp(value, min_value, max_value)
+    if value < min_value then
+        return min_value
+    end
+    if value > max_value then
+        return max_value
+    end
+    return value
+end
+
+local function formatPercent(progress)
+    if progress == nil then
+        return "Unknown"
+    end
+    local value = tonumber(progress)
+    if value == nil then
+        return "Unknown"
+    end
+    value = clamp(value, 0, 1)
+    return string.format("%d%%", math.floor(value * 100 + 0.5))
+end
+
+local function formatTimestamp(timestamp)
+    if timestamp == nil then
+        return "Unknown"
+    end
+    local value = tonumber(timestamp)
+    if value == nil then
+        return "Unknown"
+    end
+    if value > 9999999999 then
+        value = math.floor(value / 1000)
+    end
+    return os.date("%Y-%m-%d %H:%M:%S", value)
+end
+
 function Sync:new(api, settings, ui, filepath, book_meta)
     local instance = setmetatable({}, { __index = self })
     instance.api = api
@@ -185,6 +221,26 @@ function Sync:applyRemoteProgress(remote)
 
     Log:warn("apply_remote_failed", remote)
     return false
+end
+
+function Sync:describeState(locator, timestamp)
+    local total_progression = locator
+        and locator.locations
+        and locator.locations.totalProgression
+        or nil
+    return {
+        percent = formatPercent(total_progression),
+        timestamp = formatTimestamp(timestamp),
+    }
+end
+
+function Sync:getCurrentStateSummary()
+    local timestamp = self.book_meta and self.book_meta.last_sync_timestamp or nil
+    return self:describeState(self:getCurrentLocator(), timestamp)
+end
+
+function Sync:getRemoteStateSummary(remote)
+    return self:describeState(remote and remote.locator or nil, remote and remote.timestamp or nil)
 end
 
 function Sync:pushProgress(payload)

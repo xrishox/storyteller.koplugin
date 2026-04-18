@@ -400,6 +400,10 @@ function Storyteller:disableSync()
         UIManager:unschedule(self._remote_apply_release_task)
         self._remote_apply_release_task = nil
     end
+    if self._remote_state_dialog then
+        UIManager:close(self._remote_state_dialog)
+        self._remote_state_dialog = nil
+    end
     self.onPageUpdate = nil
     self.sync = nil
     self.book_meta = nil
@@ -476,18 +480,218 @@ function Storyteller:pushProgressIfPossible(reason)
         return false
     end
     local payload = self._pending_progress_payload
-    local ok, result = pcall(self.sync.pushProgress, self.sync, payload)
+    local ok, remote = self.sync:fetchProgress()
+    if ok and remote and remote.locator and remote.timestamp then
+        local local_timestamp = self.book_meta.last_sync_timestamp
+        if remote.timestamp > (local_timestamp or 0) then
+            Log:info("autosync_push_preflight_conflict", {
+                reason = reason,
+                remote_timestamp = remote.timestamp,
+                local_timestamp = local_timestamp,
+                payload_timestamp = payload and payload.timestamp or nil,
+            })
+            return self:showPushConflictPrompt(reason, remote, payload)
+        end
+    else
+        Log:info("autosync_push_preflight_skipped", {
+            reason = reason,
+            fetch_ok = ok,
+            response = remote,
+        })
+    end
+
+    local ok_push, result = pcall(self.sync.pushProgress, self.sync, payload)
     Log:info("autosync_push_result", {
         reason = reason,
-        ok = ok and result == true,
-        pcall_ok = ok,
-        result = ok and result or tostring(result),
+        ok = ok_push and result == true,
+        pcall_ok = ok_push,
+        result = ok_push and result or tostring(result),
         used_captured_payload = payload ~= nil,
     })
-    if ok and result == true then
+    if ok_push and result == true then
         self._pending_progress_payload = nil
     end
-    return ok and result == true
+    return ok_push and result == true
+end
+
+function Storyteller:closeRemoteStateDialog()
+    if not self._remote_state_dialog then
+        return
+    end
+    local UIManager = require("ui/uimanager")
+    UIManager:close(self._remote_state_dialog)
+    self._remote_state_dialog = nil
+end
+
+function Storyteller:showPushConflictPrompt(reason, remote, payload)
+    if not self.sync then
+        return false
+    end
+
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local UIManager = require("ui/uimanager")
+    local InfoMessage = require("ui/widget/infomessage")
+    local T = require("ffi/util").template
+
+    local current_state = self.sync:getCurrentStateSummary()
+    local remote_state = self.sync:getRemoteStateSummary(remote)
+    local body = T(_(
+        "The server has a newer reading position.\n\nCurrent on device:\n%1\nLast synced: %2\n\nUpdated on server:\n%3\nUpdated: %4"
+    ),
+        current_state.percent,
+        current_state.timestamp,
+        remote_state.percent,
+        remote_state.timestamp
+    )
+
+    self:closeRemoteStateDialog()
+
+    local dialog
+    dialog = ButtonDialog:new{
+        title = body,
+        buttons = {
+            {
+                {
+                    text = _("Do nothing"),
+                    callback = function()
+                        Log:info("autosync_push_conflict_deferred", {
+                            reason = reason,
+                            remote_timestamp = remote and remote.timestamp or nil,
+                        })
+                        self:closeRemoteStateDialog()
+                    end,
+                },
+            },
+            {
+                {
+                    text = _("Use server"),
+                    callback = function()
+                        self:closeRemoteStateDialog()
+                        self:beginRemoteApplySuppression()
+                        local applied = self.sync:applyRemoteProgress(remote)
+                        Log:info("autosync_push_conflict_remote_applied", {
+                            reason = reason,
+                            applied = applied,
+                            remote_timestamp = remote and remote.timestamp or nil,
+                        })
+                        if not applied then
+                            UIManager:show(InfoMessage:new{
+                                text = _("Remote position fetched, but could not be restored precisely."),
+                                timeout = 3,
+                            })
+                        end
+                    end,
+                },
+                {
+                    text = _("Keep local"),
+                    callback = function()
+                        self:closeRemoteStateDialog()
+                        local ok_push, result = pcall(self.sync.pushProgress, self.sync, payload)
+                        Log:info("autosync_push_conflict_local_kept", {
+                            reason = reason,
+                            ok = ok_push and result == true,
+                            pcall_ok = ok_push,
+                            result = ok_push and result or tostring(result),
+                            payload_timestamp = payload and payload.timestamp or nil,
+                        })
+                        if ok_push and result == true then
+                            self._pending_progress_payload = nil
+                            return
+                        end
+                        UIManager:show(InfoMessage:new{
+                            text = _("Failed to push reading position."),
+                            timeout = 2,
+                        })
+                    end,
+                },
+            },
+        },
+    }
+    self._remote_state_dialog = dialog
+    UIManager:show(dialog)
+    Log:info("autosync_push_conflict_prompt_shown", {
+        reason = reason,
+        remote_timestamp = remote and remote.timestamp or nil,
+        local_timestamp = self.book_meta and self.book_meta.last_sync_timestamp or nil,
+        payload_timestamp = payload and payload.timestamp or nil,
+        current_state = current_state,
+        remote_state = remote_state,
+    })
+    return true
+end
+
+function Storyteller:showRemoteStatePrompt(reason, remote)
+    if not self.sync then
+        return false
+    end
+
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local UIManager = require("ui/uimanager")
+    local InfoMessage = require("ui/widget/infomessage")
+    local T = require("ffi/util").template
+
+    local current_state = self.sync:getCurrentStateSummary()
+    local remote_state = self.sync:getRemoteStateSummary(remote)
+    local body = T(_(
+        "A newer reading position is available.\n\nCurrent on device:\n%1\nLast synced: %2\n\nUpdated on server:\n%3\nUpdated: %4"
+    ),
+        current_state.percent,
+        current_state.timestamp,
+        remote_state.percent,
+        remote_state.timestamp
+    )
+
+    self:closeRemoteStateDialog()
+
+    local dialog
+    dialog = ButtonDialog:new{
+        title = body,
+        buttons = {
+            {
+                {
+                    text = _("Stay"),
+                    callback = function()
+                        Log:info("autosync_remote_prompt_stay", {
+                            reason = reason,
+                            remote_timestamp = remote and remote.timestamp or nil,
+                        })
+                        self:closeRemoteStateDialog()
+                    end,
+                },
+                {
+                    text = _("Go to new state"),
+                    callback = function()
+                        self:closeRemoteStateDialog()
+                        self:beginRemoteApplySuppression()
+                        local applied = self.sync:applyRemoteProgress(remote)
+                        Log:info("autosync_fetch_applied", {
+                            reason = reason,
+                            applied = applied,
+                            remote_timestamp = remote and remote.timestamp or nil,
+                            local_timestamp = self.book_meta and self.book_meta.last_sync_timestamp or nil,
+                            prompted = true,
+                        })
+                        if not applied then
+                            UIManager:show(InfoMessage:new{
+                                text = _("Remote position fetched, but could not be restored precisely."),
+                                timeout = 3,
+                            })
+                        end
+                    end,
+                },
+            },
+        },
+    }
+    self._remote_state_dialog = dialog
+    UIManager:show(dialog)
+    Log:info("autosync_remote_prompt_shown", {
+        reason = reason,
+        remote_timestamp = remote and remote.timestamp or nil,
+        local_timestamp = self.book_meta and self.book_meta.last_sync_timestamp or nil,
+        current_state = current_state,
+        remote_state = remote_state,
+    })
+    return true
 end
 
 function Storyteller:fetchIfRemoteNewer(reason)
@@ -508,6 +712,13 @@ function Storyteller:fetchIfRemoteNewer(reason)
 
     local remote_timestamp = data.timestamp
     local local_timestamp = self.book_meta.last_sync_timestamp
+    if not remote_timestamp then
+        Log:info("autosync_fetch_missing_timestamp", {
+            reason = reason,
+            response = data,
+        })
+        return false
+    end
     if remote_timestamp and local_timestamp and remote_timestamp <= local_timestamp then
         Log:info("autosync_fetch_not_newer", {
             reason = reason,
@@ -517,15 +728,12 @@ function Storyteller:fetchIfRemoteNewer(reason)
         return false
     end
 
-    self:beginRemoteApplySuppression()
-    local applied = self.sync:applyRemoteProgress(data)
-    Log:info("autosync_fetch_applied", {
+    Log:info("autosync_fetch_newer_remote", {
         reason = reason,
-        applied = applied,
         remote_timestamp = remote_timestamp,
         local_timestamp = local_timestamp,
     })
-    return applied
+    return self:showRemoteStatePrompt(reason, data)
 end
 
 function Storyteller:onCloseDocument()
@@ -540,6 +748,10 @@ function Storyteller:onCloseDocument()
     if self._remote_apply_release_task then
         UIManager:unschedule(self._remote_apply_release_task)
         self._remote_apply_release_task = nil
+    end
+    if self._remote_state_dialog then
+        UIManager:close(self._remote_state_dialog)
+        self._remote_state_dialog = nil
     end
 
     if had_pending_progress then
