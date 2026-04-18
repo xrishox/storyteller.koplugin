@@ -591,7 +591,7 @@ function Storyteller:showPushConflictPrompt(reason, remote, payload)
                     end,
                 },
                 {
-                    text = _("Keep local"),
+                    text = _("Keep local and sync"),
                     callback = function()
                         self:closeRemoteStateDialog()
                         local ok_push, result = pcall(self.sync.pushProgress, self.sync, payload)
@@ -661,9 +661,9 @@ function Storyteller:showRemoteStatePrompt(reason, remote)
         buttons = {
             {
                 {
-                    text = _("Stay"),
+                    text = _("Do nothing"),
                     callback = function()
-                        Log:info("autosync_remote_prompt_stay", {
+                        Log:info("autosync_remote_prompt_deferred", {
                             reason = reason,
                             remote_timestamp = remote and remote.timestamp or nil,
                         })
@@ -671,8 +671,10 @@ function Storyteller:showRemoteStatePrompt(reason, remote)
                         self:closeRemoteStateDialog()
                     end,
                 },
+            },
+            {
                 {
-                    text = _("Go to new state"),
+                    text = _("Use server"),
                     callback = function()
                         self._remote_conflict_pending = nil
                         self:closeRemoteStateDialog()
@@ -691,6 +693,29 @@ function Storyteller:showRemoteStatePrompt(reason, remote)
                                 timeout = 3,
                             })
                         end
+                    end,
+                },
+                {
+                    text = _("Keep local and sync"),
+                    callback = function()
+                        self._remote_conflict_pending = nil
+                        self:closeRemoteStateDialog()
+                        local ok_push, result = pcall(self.sync.pushProgress, self.sync)
+                        Log:info("autosync_remote_prompt_local_kept", {
+                            reason = reason,
+                            ok = ok_push and result == true,
+                            pcall_ok = ok_push,
+                            result = ok_push and result or tostring(result),
+                            remote_timestamp = remote and remote.timestamp or nil,
+                        })
+                        if ok_push and result == true then
+                            self._pending_progress_payload = nil
+                            return
+                        end
+                        UIManager:show(InfoMessage:new{
+                            text = _("Failed to push reading position."),
+                            timeout = 2,
+                        })
                     end,
                 },
             },
