@@ -404,6 +404,7 @@ function Storyteller:disableSync()
         UIManager:close(self._remote_state_dialog)
         self._remote_state_dialog = nil
     end
+    self._remote_conflict_pending = nil
     self.onPageUpdate = nil
     self.sync = nil
     self.book_meta = nil
@@ -472,6 +473,13 @@ end
 
 function Storyteller:pushProgressIfPossible(reason)
     if not self.sync or not self.book_meta or not self.book_meta.book_uuid then
+        return false
+    end
+    if self._remote_conflict_pending then
+        Log:info("autosync_push_suppressed_remote_conflict_pending", {
+            reason = reason,
+            remote_timestamp = self._remote_conflict_pending.timestamp,
+        })
         return false
     end
     local NetworkMgr = require("ui/network/manager")
@@ -642,6 +650,10 @@ function Storyteller:showRemoteStatePrompt(reason, remote)
     )
 
     self:closeRemoteStateDialog()
+    self._remote_conflict_pending = {
+        reason = reason,
+        timestamp = remote and remote.timestamp or nil,
+    }
 
     local dialog
     dialog = ButtonDialog:new{
@@ -655,12 +667,14 @@ function Storyteller:showRemoteStatePrompt(reason, remote)
                             reason = reason,
                             remote_timestamp = remote and remote.timestamp or nil,
                         })
+                        self._remote_conflict_pending = nil
                         self:closeRemoteStateDialog()
                     end,
                 },
                 {
                     text = _("Go to new state"),
                     callback = function()
+                        self._remote_conflict_pending = nil
                         self:closeRemoteStateDialog()
                         self:beginRemoteApplySuppression()
                         local applied = self.sync:applyRemoteProgress(remote)
@@ -753,6 +767,7 @@ function Storyteller:onCloseDocument()
         UIManager:close(self._remote_state_dialog)
         self._remote_state_dialog = nil
     end
+    self._remote_conflict_pending = nil
 
     if had_pending_progress then
         self:pushProgressIfPossible("close_document")
